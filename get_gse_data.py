@@ -1,99 +1,136 @@
 import GEOparse
 import pandas as pd
-
-# Step 1: Download the dataset
-gse_id = "GSE44077"
-gse = GEOparse.get_GEO(geo=gse_id)
+import os 
 
 
+class GEODataHandler:
+    def __init__(self, gse_id):
+        self.gse_id = gse_id
+        self.gse = None
+        self.expression_data = pd.DataFrame()
+        self.mapping_df = pd.DataFrame()
+        self.merged_data = pd.DataFrame()
+        self.cleaned_df = pd.DataFrame()
 
-# Step 2: Access the GPL data
-gpl_id = list(gse.gpls.keys())[0]  # Assuming one GPL file; adjust as needed
-gpl = gse.gpls[gpl_id]
+    def toggle_pandas_display_options(enable=True):
+        """Toggle enhanced pandas display options based on the 'enable' flag."""
+        if enable:
+            pd.set_option('display.max_columns', None)  # Show all columns
+            pd.set_option('display.max_rows', 10)  # Adjust the number of rows to display as needed
+            pd.set_option('display.max_colwidth', None)  # Show full content of each column
+            pd.set_option('display.width', None)  # Adjust display width to show each row on one line, depending on your display
+        else:
+            # Reset to default
+            pd.reset_option('display.max_columns')
+            pd.reset_option('display.max_rows')
+            pd.reset_option('display.max_colwidth')
+            pd.reset_option('display.width')
 
-mappings = []  # Initialize an empty list to store mappings
+    def download_dataset(self):
+        """Download the dataset if not already present in the local directory."""
+        # Define the expected file path for the dataset
+        expected_file_path = f"{self.gse_id}_family.soft.gz"
+        
+        # Check if the file already exists
+        if not os.path.exists(expected_file_path):
+            # Download the dataset if the file does not exist
+            self.gse = GEOparse.get_GEO(geo=self.gse_id, destdir=".")
+            print(f"Downloaded dataset: {self.gse_id}")
+        else:
+            # Load the dataset from the local file if it exists
+            self.gse = GEOparse.get_GEO(filepath=expected_file_path)
+            print(f"Dataset {self.gse_id} is already downloaded and loaded from local file.")
 
-for index, row in gpl.table.iterrows():
-    probe_id = row['ID']
-    assignments = row['gene_assignment'].split('///')  # Split assignments
+    def parse_gpl_data(self):
+        """Parse GPL data to extract mappings."""
+        gpl_id = list(self.gse.gpls.keys())[0]
+        gpl = self.gse.gpls[gpl_id]
+        
+        mappings = []
+        for index, row in gpl.table.iterrows():
+            probe_id = row['ID']
+            assignments = row['gene_assignment'].split('///')
+            
+            for assignment in assignments:
+                parts = assignment.split('//')
+                
+                # Initialize variables to store information, set defaults to an empty string
+                ref_db = ''
+                location = ''
+                gene_symbol = ''
+                chromosomal_locations = ''
+                entrez_gene_id = ''
+                
+                # Check the number of parts and assign accordingly
+                if len(parts) >= 1:
+                    ref_db = parts[0].strip()
+                if len(parts) >= 2:
+                    location = parts[1].strip()
+                if len(parts) >= 3:
+                    gene_symbol = parts[2].strip()
+                if len(parts) >= 4:
+                    chromosomal_locations = parts[3].strip()
+                if len(parts) >= 5:
+                    entrez_gene_id = parts[4].strip()
+                
+                mappings.append({
+                    'ProbeID': probe_id,
+                    'Ref_DB': ref_db,
+                    'Location': location,
+                    'GeneSymbol': gene_symbol,
+                    'ChromosomalLocation': chromosomal_locations,
+                    'EntrezGeneID': entrez_gene_id
+                })
+
+        self.mapping_df = pd.DataFrame(mappings).drop_duplicates(subset='ProbeID', keep='first')
+        print("Parsed GPL data and filtered for unique mappings.")
+
+    def compile_expression_data(self):
+        """Compile expression data from all samples."""
+        for gsm_name, gsm in self.gse.gsms.items():
+            df = pd.DataFrame(gsm.table).set_index('ID_REF')
+            self.expression_data[gsm_name] = df['VALUE']
+        self.expression_data.reset_index(inplace=True)
+        print("Compiled expression data from all samples.")
     
-    for assignment in assignments:
-        parts = assignment.split('//')
+    def merge_data(self):
+        """Merge expression data with gene mappings."""
+        self.merged_data = pd.merge(self.expression_data, self.mapping_df, left_on='ID_REF', right_on='ProbeID', how='left')
+        print("Merged expression data and gene mappings.")
+
+
+    def clean_entrez_gene_id(self,column_name='EntrezGeneID'):
+        """
+        Removes rows from a DataFrame where the EntrezGeneID column contains NaN, "---", "", or other invalid values.
         
-        # Initialize variables to store information, set defaults to an empty string
-        ref_db = ''
-        location = ''
-        gene_symbol = ''
-        chromosomal_locations = ''
-        entrez_gene_id = ''
+        Parameters:
+        - df: The pandas DataFrame to be cleaned.
+        - column_name: The name of the column to check for invalid values (default is 'EntrezGeneID').
         
-        # Check the number of parts and assign accordingly
-        if len(parts) >= 1:
-            ref_db = parts[0].strip()
-        if len(parts) >= 2:
-            location = parts[1].strip()
-        if len(parts) >= 3:
-            gene_symbol = parts[2].strip()
-        if len(parts) >= 4:
-            chromosomal_locations = parts[3].strip()
-        if len(parts) >= 5:
-            entrez_gene_id = parts[4].strip()
+        Returns:
+        - A pandas DataFrame with the invalid rows removed.
+        """
+        # Remove rows where the column is NaN
+        self.cleaned_df = self.merged_data.dropna(subset=[column_name])
+        
+        # Further remove rows where the column value is "---" or an empty string ""
+        self.cleaned_df = self.cleaned_df[~self.cleaned_df[column_name].isin(["---", ""])]
+        
+        return self.cleaned_df    
+    def save_to_csv(self, merged_file='GSE44077_merged_data.csv', mapping_file='GSE44077_gene_mapping.csv'):
+        """Save the merged data and gene mappings to CSV files."""
+        self.merged_data.to_csv(merged_file, index=False)
+        self.mapping_df.to_csv(mapping_file, index=False)
+        print(f"Merged data saved to {merged_file}.")
+        print(f"Gene mapping saved to {mapping_file}.")
 
-        # Append the parsed information to the mappings list
-        mappings.append({
-            'ProbeID': probe_id,
-            'Ref_DB': ref_db,
-            'Location': location,
-            'GeneSymbol': gene_symbol,
-            'ChromosomalLocation': chromosomal_locations,
-            'EntrezGeneID': entrez_gene_id
-        })
-
-# Convert the list of mappings to a DataFrame
-mapping_df = pd.DataFrame(mappings)
-
-# Removing entries without a GeneSymbol
-mapping_df = mapping_df[mapping_df['GeneSymbol'] != '']
-
-# Combine expression data for all samples into a single DataFrame
-expression_data = pd.DataFrame()
-
-
-# Extract expression data for each sample
-for gsm_name, gsm in gse.gsms.items():
-    # Convert the table to a DataFrame and set 'ID_REF' as the index
-    df = pd.DataFrame(gsm.table).set_index('ID_REF')
-    # Select the VALUE column (assuming expression values are in 'VALUE'; adjust if necessary)
-    expression_data[gsm_name] = df['VALUE']
-
-# Reset index to turn 'ID_REF' into a column, facilitating the merge
-expression_data.reset_index(inplace=True)
-
-id_ref_set = set(expression_data['ID_REF'])
-probe_id_set = set(mapping_df['ProbeID'])
-
-# Find the intersection (common elements) between the two sets
-common_ids = id_ref_set.intersection(probe_id_set)
-
-# Convert the set of common IDs back to a list if you need to use it for indexing or further processing
-common_ids_list = list(common_ids)
-
-print(f"Number of common IDs: {len(common_ids)}")
-# If you want to see the common IDs, you can print common_ids_list or a portion of it
-print(common_ids_list[:10])  # Example: Print the first 10 common IDs
-
-
-# Merge the expression data with the gene mapping data
-# Note: This will align the expression data with the mapping based on ProbeID
-merged_data = pd.merge(expression_data, mapping_df, left_on='ID_REF', right_on='ProbeID', how='left')
-
-# Optionally, save the merged data to a CSV file
-merged_data.to_csv('GSE44077_merged_expression_gene_mapping.csv', index=False)
-
-print('Merged expression data and gene mapping saved to GSE44077_merged_expression_gene_mapping.csv.')
-
-# Step 4: Save to CSV
-mapping_df.to_csv('GSE44077_gene_mapping.csv', index=False)
-
-print('Mapping saved to GSE44077_gene_mapping.csv.')
-
+# Example usage
+gse_id = "GSE44077"
+handler = GEODataHandler(gse_id=gse_id)
+handler.download_dataset()
+handler.parse_gpl_data()
+handler.compile_expression_data()
+handler.merge_data()
+handler.toggle_pandas_display_options()
+handler.clean_entrez_gene_id('EntrezGeneID')
+handler.save_to_csv()
