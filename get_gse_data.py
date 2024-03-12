@@ -12,7 +12,7 @@ class GEODataHandler:
         self.merged_data = pd.DataFrame()
         self.cleaned_df = pd.DataFrame()
 
-    def toggle_pandas_display_options(enable=True):
+    def toggle_pandas_display_options(self,enable):
         """Toggle enhanced pandas display options based on the 'enable' flag."""
         if enable:
             pd.set_option('display.max_columns', None)  # Show all columns
@@ -131,6 +131,6 @@ handler.download_dataset()
 handler.parse_gpl_data()
 handler.compile_expression_data()
 handler.merge_data()
-handler.toggle_pandas_display_options()
+handler.toggle_pandas_display_options(True)
 handler.clean_entrez_gene_id('EntrezGeneID')
 handler.save_to_csv()
