@@ -34,7 +34,7 @@ class FeatureSelector:
         self.model.fit(self.X_train, self.y_train)
         self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': self.model.feature_importances_}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
 
-    def apply_ttest(self, k=10, **kwargs):
+    def train_ttest(self, k=10, **kwargs):
         selector = SelectKBest(score_func=f_classif, k=min(k, len(self.X.columns)) if k != -1 else 'all', **kwargs)
         selector.fit_transform(self.X_train, self.y_train)
         scores = pd.Series(selector.scores_, index=self.X.columns)
@@ -42,13 +42,13 @@ class FeatureSelector:
         if k != -1:
             self.feature_importances = self.feature_importances.head(k)
 
-    def apply_mutual_info(self, k=10, **kwargs):
+    def train_mutual_info(self, k=10, **kwargs):
         mi_scores = mutual_info_classif(self.X_train, self.y_train, **kwargs)
         self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': mi_scores}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
         if k != -1:
             self.feature_importances = self.feature_importances.head(k)
 
-    def logistic_regression_importance(self, n=10, C=1.0, max_iter=500, **kwargs):
+    def train_logistic_regression(self, n=10, C=1.0, max_iter=500, **kwargs):
         model = LogisticRegression(C=C, max_iter=max_iter, **kwargs)
         model.fit(self.X_train, self.y_train)
         importance = pd.Series(model.coef_[0], index=self.X.columns).abs()

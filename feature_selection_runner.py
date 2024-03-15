@@ -2,15 +2,15 @@ from fs_methods import FeatureSelector
 from data_manipulator import DataManipulator
 from data_handler import GEODataManager
 from xgboost import XGBClassifier
+from threshold_applier import ThresholdApplier
 import pandas as pd
-
 from fs_methods import FeatureSelector
 from data_manipulator import DataManipulator
 from data_handler import GEODataManager
 import pandas as pd
 
 class FeatureSelectionRunner:
-    def __init__(self, dataframe, label_column, n_runs=10, augmentation_methods=['none', 'bootstrap'], selection_methods=['xgboost', 'anova', 'mutual_info', 'logistic_regression'], aggregation_methods=['mean', 'median', 'sum', 'all'], model_params=None):
+    def __init__(self, dataframe, label_column, n_runs=10, augmentation_methods=['none', 'bootstrap'], selection_methods=['xgboost', 'ttest', 'mutual_info', 'logistic_regression'], aggregation_methods=['mean', 'median', 'sum', 'all'], model_params=None):
         self.dataframe = dataframe
         self.label_column = label_column
         self.n_runs = n_runs
@@ -61,16 +61,39 @@ class FeatureSelectionRunner:
 
         self.feature_importances = all_results
 
-    def save_results_to_csv(self):
-        for key, results in self.feature_importances.items():
-            for agg_method, importances in results.items():
-                filename = f"feature_selection_results_{key}_{agg_method}.csv"
-                if agg_method == 'all':
-                    importances_df = importances.reset_index()
-                else:
-                    importances_df = pd.DataFrame(importances, columns=['Importance']).reset_index().rename(columns={'index': 'Feature'})
-                importances_df.to_csv(filename, index=False)
-                print(f"Results saved to {filename}")
+    def apply_aggregation_methods(self):
+        """
+        If 'all' is specified in aggregation_methods, applies mean, median, and sum 
+        aggregations to the feature importances and adds the results as new columns 
+        to the respective DataFrames. It can also handle other specified aggregation methods.
+        """
+        # Define the default aggregation operations
+        default_aggregations = ['mean', 'median', 'sum']
+        
+        # Determine the aggregation operations to apply based on the presence of 'all'
+        if 'all' in self.aggregation_methods:
+            aggregation_methods_to_apply = default_aggregations
+        else:
+            # This allows for future customization or extension of aggregation methods
+            aggregation_methods_to_apply = [method for method in self.aggregation_methods if method in default_aggregations]
+        
+        # Apply the determined aggregation methods
+        for key, df in self.feature_importances.items():
+            for method in aggregation_methods_to_apply:
+                agg_result = getattr(df, method)(axis=1)
+                df[method] = agg_result  # Add as a new column to the DataFrame
+    def save_feature_importances_to_csv(self):
+        """
+        Saves each DataFrame in self.feature_importances to a CSV file,
+        including the feature names as index and the aggregation columns.
+        """
+        for key, df in self.feature_importances.items():
+            # Construct a filename based on the key
+            filename = f"{key}_feature_importances.csv"
+            # Save the DataFrame to CSV
+            df.to_csv(filename, header=True, index=True)
+            print(f"Saved {filename}")
+
 
 
 # Example usage
@@ -82,7 +105,7 @@ if __name__ == "__main__":
         label_column='Label',
         n_runs=2,
         augmentation_methods=['none', 'bootstrap'],
-        selection_methods=['xgboost', 'anova', 'logistic_regression'],
+        selection_methods=['xgboost', 'ttest', 'logistic_regression'],
         aggregation_methods=['mean', 'median', 'sum'],
         model_params={
             'xgboost': {'max_depth': 4, 'n_estimators': 100},
@@ -91,5 +114,15 @@ if __name__ == "__main__":
             'logistic_regression': {'n': -1, 'C': 0.5}
         }
     )
+
+    
     runner.augment_and_select_features()
-    runner.save_results_to_csv()
+    runner.apply_aggregation_methods()
+    runner.save_feature_importances_to_csv()
+
+    thresholds = [1, 'KDE', 'GMM']  # Apply 1% threshold, KDE, and GMM thresholds
+    methods_to_apply = 'all'  
+    selection_methods_to_apply = 'all'  
+
+    threshold_applier = ThresholdApplier(thresholds, methods_to_apply, selection_methods_to_apply)
+    threshold_applier.apply_thresholds(runner.feature_importances)
