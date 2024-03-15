@@ -2,10 +2,10 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.feature_selection import SelectKBest, f_classif, mutual_info_classif
+from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
-from data_handler import GEODataManager
-
+from data_handler import GEODataManager  # Make sure this import matches your setup
 
 class FeatureSelector:
     def __init__(self, dataframe, label_column):
@@ -20,52 +20,70 @@ class FeatureSelector:
         le = LabelEncoder()
         self.y_encoded = le.fit_transform(self.y)
 
-    def split_data(self, test_size=0.2, random_state=42):
+    def split_data(self, test_size=0.2):
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            self.X, self.y_encoded, test_size=test_size, random_state=random_state)
+            self.X, self.y_encoded, test_size=test_size)
 
     def train_xgboost(self, **kwargs):
         self.model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', **kwargs)
         self.model.fit(self.X_train, self.y_train)
-        self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': self.model.feature_importances_})
+        self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': self.model.feature_importances_}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
 
     def train_random_forest(self, n_estimators=100, **kwargs):
         self.model = RandomForestClassifier(n_estimators=n_estimators, **kwargs)
         self.model.fit(self.X_train, self.y_train)
-        self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': self.model.feature_importances_})
+        self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': self.model.feature_importances_}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
 
-    def apply_ttest(self, k=10):
-        # Apply t-test to select k best features based on the training data
-        selector = SelectKBest(score_func=f_classif, k=k)
-        X_new = selector.fit_transform(self.X_train, self.y_train)
-        # Get the mask of selected features
-        mask = selector.get_support(indices=True)
-        # Map back to feature names and return
-        selected_features = self.X.columns[mask]
-        return selected_features
+    def apply_ttest(self, k=10, **kwargs):
+        selector = SelectKBest(score_func=f_classif, k=min(k, len(self.X.columns)) if k != -1 else 'all', **kwargs)
+        selector.fit_transform(self.X_train, self.y_train)
+        scores = pd.Series(selector.scores_, index=self.X.columns)
+        self.feature_importances = pd.DataFrame({'Feature': scores.index, 'Importance': scores.values}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
+        if k != -1:
+            self.feature_importances = self.feature_importances.head(k)
 
-    def get_top_n_features(self, n=10):
-        sorted_features = self.feature_importances.sort_values(by='Importance', ascending=False).reset_index(drop=True)
-        return sorted_features.head(n)
+    def apply_mutual_info(self, k=10, **kwargs):
+        mi_scores = mutual_info_classif(self.X_train, self.y_train, **kwargs)
+        self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': mi_scores}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
+        if k != -1:
+            self.feature_importances = self.feature_importances.head(k)
 
-# Example usage
+    def logistic_regression_importance(self, n=10, C=1.0, max_iter=500, **kwargs):
+        model = LogisticRegression(C=C, max_iter=max_iter, **kwargs)
+        model.fit(self.X_train, self.y_train)
+        importance = pd.Series(model.coef_[0], index=self.X.columns).abs()
+        self.feature_importances = pd.DataFrame({'Feature': importance.index, 'Importance': importance.values}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
+        if n != -1:
+            self.feature_importances = self.feature_importances.head(n)
+
+
 if __name__ == '__main__':
     filename = "final_data.csv"
-    df = GEODataManager.load_csv(filename)
+    df = GEODataManager.load_csv(filename)  # Adjust for your data loading function
     selector = FeatureSelector(dataframe=df, label_column='Label')
     selector.encode_labels()
     selector.split_data()
     
-    # Train XGBoost and print top 10 features
-    selector.train_xgboost()
-    print("Top 10 Features from XGBoost:")
-    print(selector.get_top_n_features(n=10))
+    # Fine-tuning XGBoost and showing all features
+    xgboost_params = {'max_depth': 3, 'n_estimators': 100}
+    selector.train_xgboost(**xgboost_params)
+    print("XGBoost Custom Parameters - All Features:")
+    print(selector.feature_importances)  # Returns all features
     
-    # Train Random Forest and print top 10 features
-    selector.train_random_forest()
-    print("\nTop 10 Features from Random Forest:")
-    print(selector.get_top_n_features(n=10))
+    # Applying ANOVA F-test with custom settings and returning all features
+    selector.apply_ttest(k=-1)  # -1 to return all features
+    print("\nANOVA F-test Custom Parameters - All Features:")
+    print(selector.feature_importances)
     
-    # Apply t-test and print top 10 features
-    print("\nTop 10 Features from t-test:")
-    print(selector.apply_ttest(k=10))
+    # Applying Mutual Information with custom settings and returning all features
+    mi_params = {'n_neighbors': 3}
+    selector.apply_mutual_info(k=-1, **mi_params)  # -1 to return all features
+    print("\nMutual Information Custom Parameters - All Features:")
+    print(selector.feature_importances)
+    
+    # Logistic Regression Importance with custom settings and returning all features
+    lr_params = {'C': 0.01, 'max_iter': 1000}
+    selector.logistic_regression_importance(n=-1, **lr_params)  # -1 to return all features
+    print("\nLogistic Regression Importance Custom Parameters - All Features:")
+    print(selector.feature_importances)
+    print("END")

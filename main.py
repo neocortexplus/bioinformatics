@@ -1,5 +1,5 @@
 from data_handler import GEODataManager,DisplayOptionsManager,GEODataParser,GEODataMerger
-from data_Manipulator import DataAugmentation
+from data_manipulator import DataManipulator  # Make sure this is the correct import path
 from fs_methods import FeatureSelector
 
 
@@ -32,12 +32,12 @@ if __name__ == "__main__":
 
     manager.save_to_csv(dataframe=final_data, merged_file="final_data.csv")
 
-    augmenter = DataAugmentation(df)
-    df_shuffled = augmenter.shuffle_rows()
-    df_noised = augmenter.add_random_noise('A', noise_level=0.05)
-    df_randomized_col = augmenter.randomize_column('B')
-    df_swapped = augmenter.swap_columns('A', 'B')
-    df_synthetic = augmenter.add_synthetic_feature(lambda row, scale: row['A'] * scale + row['B'], 'D', scale=2)
+    DataManipulator = DataManipulator(df)
+    df_shuffled = DataManipulator.shuffle_rows()
+    df_noised = DataManipulator.add_random_noise('A', noise_level=0.05)
+    df_randomized_col = DataManipulator.randomize_column('B')
+    df_swapped = DataManipulator.swap_columns('A', 'B')
+    df_synthetic = DataManipulator.add_synthetic_feature(lambda row, scale: row['A'] * scale + row['B'], 'D', scale=2)
 
     print(df.head())
 
