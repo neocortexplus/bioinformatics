@@ -10,7 +10,96 @@ from skrebate import ReliefF
 from scipy.stats import mannwhitneyu
 from mrmr import mrmr_classif
 import numpy as np
+from sklearn.tree import DecisionTreeClassifier
+from wxmethod.src.wx_hyperparam import WxHyperParameter
+from wxmethod.src.wx_core import wx_slp, wx_mlp, connection_weight
+import geode
+from geode import chdir
+from skfeature.function.similarity_based import fisher_score
+from keras.utils import to_categorical
 
+
+class DataFrameNormalizer:
+    def __init__(self, dataframe):
+        """
+        Initialize the DataFrameNormalizer with a dataframe.
+        """
+        self.dataframe = dataframe
+    
+    def min_max_normalize(self, label_column):
+        """
+        Apply Min-Max normalization to all columns except the label column.
+        """
+        # Copy the dataframe to avoid modifying the original
+        df_normalized = self.dataframe.copy()
+        
+        # Perform Min-Max normalization on all columns except the label column
+        for column in df_normalized.columns:
+            if column != label_column:
+                df_normalized[column] = (df_normalized[column] - df_normalized[column].min()) / (df_normalized[column].max() - df_normalized[column].min())
+        
+        self.normalized_df = df_normalized
+        return df_normalized
+
+    def verify_dataset(self, label_column="Label"):
+        """
+        Provides comprehensive statistics for the normalized dataset, excluding the label column.
+        """
+        if self.normalized_df is None:
+            print("Dataset has not been normalized yet.")
+            return
+
+        df_without_label = self.normalized_df.drop(columns=[label_column])
+
+        overall_min = df_without_label.min().min()
+        overall_max = df_without_label.max().max()
+        mean = df_without_label.mean().mean()
+        median = df_without_label.median().median()
+        std_dev = df_without_label.std().mean()
+
+        print(f"Overall Min Value: {overall_min}")
+        print(f"Overall Max Value: {overall_max}")
+        print(f"Mean Value: {mean}")
+        print(f"Median Value: {median}")
+        print(f"Standard Deviation: {std_dev}")
+
+class StabilityCalculator:
+    def __init__(self, top_features_df):
+        """
+        Initializes the StabilityCalculator with a DataFrame of top features.
+        
+        Parameters:
+        - top_features_df: DataFrame, where each column represents the top features selected in one iteration.
+        """
+        self.top_features_df = top_features_df
+
+    def calculate_kenchev_stability_index(self):
+        """
+        Calculates the Kenchev Stability Index for feature selection results provided in a DataFrame.
+        
+        Returns:
+        - Kenchev Stability Index: A float value representing the stability of the feature selection process.
+        """
+        # Number of iterations (columns in the DataFrame)
+        N = self.top_features_df.shape[1]
+
+        # Number of top features selected in each iteration (rows in the DataFrame)
+        k = self.top_features_df.shape[0]
+
+        # Flatten the DataFrame to a list of lists (each sublist represents an iteration)
+        features_all_iterations = [self.top_features_df[column].tolist() for column in self.top_features_df.columns]
+
+        # Calculate pairwise overlaps and sum them up
+        sum_overlaps = 0
+        for i in range(N):
+            for j in range(i + 1, N):
+                sum_overlaps += len(set(features_all_iterations[i]).intersection(set(features_all_iterations[j])))
+
+        # Compute Kenchev Stability Index
+        K = sum_overlaps / (N * (N - 1) / 2 * k)
+
+        return K
+    
 class FeatureSelector:
     def __init__(self, dataframe, label_column):
         self.dataframe = dataframe
@@ -38,19 +127,54 @@ class FeatureSelector:
         self.model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', **kwargs)
         self.model.fit(self.X_train, self.y_train)
         self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': self.model.feature_importances_}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
+    
+    def train_chdir(self, num_features=20):
 
-    def train_random_forest(self, n_estimators=100, **kwargs):
-        self.model = RandomForestClassifier(n_estimators=n_estimators, **kwargs)
-        self.model.fit(self.X_train, self.y_train)
-        self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': self.model.feature_importances_}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
+        # Convert X to a transposed numpy array for CHDIR processing
 
-    def train_ttest(self, k=10, **kwargs):
-        selector = SelectKBest(score_func=f_classif, k=min(k, len(self.X.columns)) if k != -1 else 'all', **kwargs)
-        selector.fit_transform(self.X_train, self.y_train)
-        scores = pd.Series(selector.scores_, index=self.X.columns)
-        self.feature_importances = pd.DataFrame({'Feature': scores.index, 'Importance': scores.values}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
-        if k != -1:
-            self.feature_importances = self.feature_importances.head(k)
+        data_np = self.X.T.to_numpy()
+        sampleclass = [1 if sample == 'normal' else 2 for sample in self.y]
+
+        # Call the CHDIR function, assuming it is available and properly imported
+        chdir_results = chdir(data_np, sampleclass, self.X.columns,gamma=0.001)
+
+
+        # Extract the top N features based on the CHDIR results
+        top_features = chdir_results[:num_features]
+
+        # Prepare the feature_importances DataFrame
+        self.feature_importances = pd.DataFrame(top_features, columns=['Feature', 'Score']).sort_values(by='Score', ascending=False).reset_index(drop=True)    
+    
+    
+    def train_fisher_score(self, num_features=20):
+        
+
+        # Calculate Fisher Score for each feature. Assuming self.X and self.y_encoded are correctly prepared
+        scores = fisher_score.fisher_score(self.X.to_numpy(), self.y_encoded)
+
+        # Rank features based on score and select the top ones
+        top_features_indices = np.argsort(scores)[::-1][:num_features]
+        top_features_names = self.X.columns[top_features_indices].tolist()
+        top_features_scores = scores[top_features_indices]
+
+        # Update the feature_importances attribute
+        self.feature_importances = pd.DataFrame({
+            'Feature': top_features_names,
+            'FisherScore': top_features_scores
+        }).sort_values(by='FisherScore', ascending=False).reset_index(drop=True)
+        
+        def train_random_forest(self, n_estimators=100, **kwargs):
+            self.model = RandomForestClassifier(n_estimators=n_estimators, **kwargs)
+            self.model.fit(self.X_train, self.y_train)
+            self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': self.model.feature_importances_}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
+
+        def train_ttest(self, k=10, **kwargs):
+            selector = SelectKBest(score_func=f_classif, k=min(k, len(self.X.columns)) if k != -1 else 'all', **kwargs)
+            selector.fit_transform(self.X_train, self.y_train)
+            scores = pd.Series(selector.scores_, index=self.X.columns)
+            self.feature_importances = pd.DataFrame({'Feature': scores.index, 'Importance': scores.values}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
+            if k != -1:
+                self.feature_importances = self.feature_importances.head(k)
 
     def train_mutual_info(self, k=10, **kwargs):
         mi_scores = mutual_info_classif(self.X_train, self.y_train, **kwargs)
@@ -86,7 +210,15 @@ class FeatureSelector:
             self.feature_importances = feature_importances.head(n)
         else:
             self.feature_importances = feature_importances
-            
+
+    def train_decision_tree(self, **kwargs):
+        self.model = DecisionTreeClassifier(**kwargs)
+        self.model.fit(self.X_train, self.y_train)
+        self.feature_importances = pd.DataFrame({
+            'Feature': self.X.columns,
+            'Importance': self.model.feature_importances_
+        }).sort_values(by='Importance', ascending=False).reset_index(drop=True)        
+
     def train_relief(self, n_features_to_select=10):
         if n_features_to_select == -1:
             n_features_to_select = len(self.X.columns)  # Select all features if -1 is specified
@@ -96,7 +228,11 @@ class FeatureSelector:
         feature_importances = relief.feature_importances_
         top_features_indices = feature_importances.argsort()[::-1][:n_features_to_select]  # This line now redundant but kept for clarity
         self.feature_importances = pd.DataFrame({'Feature': self.X.columns[top_features_indices], 'Importance': feature_importances[top_features_indices]}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
-    
+
+    # def wx(self,n_features_to_select):
+    #     hp = WxHyperParameter(epochs=30, learning_ratio=0.01, batch_size=8, verbose=False)
+    #     sel_idx, sel_weight, val_acc = wx_slp(x_train, y_train, x_val, y_val, n_selection=n_features_to_select, hyper_param=hp, num_cls=2)
+
     
     def train_mann_whitney_u(self):
         # Assuming binary classification and y_train is encoded as 0 and 1
@@ -134,6 +270,7 @@ class FeatureSelector:
             'Redundancy': redundancy_scores
         }).sort_values(by='Relevance', ascending=False).reset_index(drop=True)
 
+
     def randomize_columns_order(self):
         """
         Randomizes the order of DataFrame columns, keeping the label column as the last column.
@@ -158,68 +295,48 @@ class FeatureSelector:
         self.encode_labels()
         self.split_data()
 
-def calculate_kenchev_stability_index(top_features_df):
 
-    """
+    def train_wx(self, num_features=None, runs=10):
+        """
+        Performs feature selection using the WX algorithm on the class's data.
 
-    Calculates the Kenchev Stability Index for feature selection results provided in a DataFrame.
+        Parameters:
+        - num_features: Number of top features to select. If None, a default value should be used or determined by the algorithm.
+        - runs: Number of runs for the WX algorithm. This parameter might be used internally by the WX algorithm.
+        
+        This method updates an attribute to store information about the selected features and their importance.
+        """
+        if num_features is None:
+            num_features = 10  # Default or calculated value
 
-    Each column of the DataFrame represents a set of top features selected in one iteration.
+        # Preparing data and labels
+        genes = list(self.X.columns)
+        data_labels = self.y_encoded
+        y_all = to_categorical(data_labels, num_classes=np.unique(data_labels).size)
+        x_all = self.X.values
 
-    
+        # Splitting data into training and validation sets
+        x_train, x_val, y_train, y_val = train_test_split(x_all, y_all, test_size=0.2, random_state=1)
 
-    Parameters:
+        # WX algorithm hyperparameters setup
+        hp = WxHyperParameter(epochs=30, learning_ratio=0.01, batch_size=8, verbose=False)
+        sel_idx, sel_weight, val_acc = wx_slp(x_train, y_train, x_val, y_val, n_selection=num_features, hyper_param=hp, num_cls=np.unique(data_labels).size)
 
-    - top_features_df: DataFrame, where each column represents the top features selected in one iteration.
+        # Updating the class attribute to reflect the selected features and their importance
+        self.feature_importances = pd.DataFrame({
+            'Feature': np.array(genes)[sel_idx],
+            'Weight': sel_weight
+        }).sort_values(by='Weight', ascending=False).reset_index(drop=True)
 
-    
-
-    Returns:
-
-    - Kenchev Stability Index: A float value representing the stability of the feature selection process.
-
-    """
-
-    # Number of iterations (columns in the DataFrame)
-
-    N = top_features_df.shape[1]
-
-    
-
-    # Number of top features selected in each iteration (rows in the DataFrame)
-
-    k = top_features_df.shape[0]
-
-    
-
-    # Flatten the DataFrame to a list of lists (each sublist represents an iteration)
-
-    features_all_iterations = [top_features_df[column].tolist() for column in top_features_df.columns]
-
-    
-
-    # Calculate pairwise overlaps and sum them up
-
-    sum_overlaps = 0
-
-    for i in range(N):
-
-        for j in range(i + 1, N):
-
-            sum_overlaps += len(set(features_all_iterations[i]).intersection(set(features_all_iterations[j])))
-
-
-
-    # Compute Kenchev Stability Index
-
-    K = sum_overlaps / (N * (N - 1) / 2 * k)
-
-    
-
-    return K
+        # Optionally, you might want to log or use the validation accuracy somewhere
+        print('\nSingle Layer WX Evaluation')
+        print('Selected feature names:', np.array(genes)[sel_idx])
+        print('Selected feature index:', sel_idx)
+        print('Selected feature weight:', sel_weight)
+        print('Evaluation accuracy:', val_acc)
         
 if __name__ == '__main__':
-    filename = "../final_data.csv"
+    filename = "final_data.csv"
     df = GEODataManager.load_csv(filename)  # Adjust for your data loading function
     df['Label'] = df['Label'].replace({
     'Normal lung': 'normal',
@@ -227,68 +344,161 @@ if __name__ == '__main__':
     'NSCLC': 'cancer',
     'Lung carcinoid tumor': 'cancer'
 })
-    # Keeping the 'Label' column (or the first column if it's not labeled) and randomly selecting 2000 features
-    # Adjust the column selection if your label column has a different name or position
+    
+    normalizer = DataFrameNormalizer(df)
+    df = normalizer.min_max_normalize('Label')
+    normalizer.verify_dataset()
+
     columns_to_keep = ['Label'] + list(np.random.choice(df.columns[:-1], size=2000, replace=False))
 
     # Creating the subset DataFrame
     df = df[columns_to_keep]
-
+ 
     selector = FeatureSelector(dataframe=df, label_column='Label')
 
+
     top_features_df = pd.DataFrame()
+    print("Chdir Score:")
     for i in range(1, 6):  
         selector.randomize_columns_order()
         # Fine-tuning XGBoost and showing all features
-        xgboost_params = {'max_depth': 3, 'n_estimators': 100}
-        selector.train_xgboost(**xgboost_params)
-        print("XGBoost Custom Parameters - All Features:")
+        selector.train_chdir()
         # print(selector.feature_importances)  
         # print(selector.X_train.columns)
         top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
         top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
 
-    print(calculate_kenchev_stability_index(top_features_df))
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+
+
     top_features_df = pd.DataFrame()
+    print("Wx Score:")
+    for i in range(1, 6):  
+        selector.randomize_columns_order()
+        # Fine-tuning XGBoost and showing all features
+        selector.train_wx()
+        # print(selector.feature_importances)  
+        # print(selector.X_train.columns)
+        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
+
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+
+
+
+
+
+    top_features_df = pd.DataFrame()
+    print("Fisher Score:")
+    for i in range(1, 6):  
+        selector.randomize_columns_order()
+        # Fine-tuning XGBoost and showing all features
+        selector.train_fisher_score()
+        # print(selector.feature_importances)  
+        # print(selector.X_train.columns)
+        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
+
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+    
+    top_features_df = pd.DataFrame()
+    print("XGBoost:")
+    for i in range(1, 6):  
+        selector.randomize_columns_order()
+        # Fine-tuning XGBoost and showing all features
+        xgboost_params = {'max_depth': 3, 'n_estimators': 100}
+        selector.train_xgboost(**xgboost_params)
+        # print(selector.feature_importances)  
+        # print(selector.X_train.columns)
+        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
+
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+
+    top_features_df = pd.DataFrame()
+    print("Decision Tree ")
+    for i in range(1, 6):  
+        selector.randomize_columns_order()
+        # Fine-tuning XGBoost and showing all features
+        dt_params = {'max_depth':5}
+        selector.train_decision_tree(**dt_params)
+        # print(selector.feature_importances)  
+        # print(selector.X_train.columns)
+        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
+
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+
+
+
+
+    top_features_df = pd.DataFrame()
+    print("Decision Tree ")
+
     for i in range(1, 6):  
 
         selector.randomize_columns_order()
-        print("\nANOVA F-test Custom Parameters - All Features:")
+        print("\nANOVA F-test")
         selector.train_ttest(k=-1)
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
         top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
         top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
     
-    print(calculate_kenchev_stability_index(top_features_df))
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+
     top_features_df = pd.DataFrame()
+    print("Decision Tree ")
+
     for i in range(1, 6):  
 
         selector.randomize_columns_order()
         # Train using Mann-Whitney U test
         selector.train_mann_whitney_u()
-        print("\nMann-Whitney U Test Feature Ranking:")
+        print("\nMann-Whitney U Test")
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
         top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
         top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
 
 
-    print(calculate_kenchev_stability_index(top_features_df))
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+
     top_features_df = pd.DataFrame()
+    print("Decision Tree ")
+
     for i in range(1, 6):  
         selector.randomize_columns_order()
         # Logistic Regression Importance with custom settings and returning all features
         lr_params = {'C': 0.01, 'max_iter': 1000}
         selector.logistic_regression_importance(n=-1, **lr_params)  # -1 to return all features
-        print("\nLogistic Regression Importance Custom Parameters - All Features:")
+        print("\nLogistic Regression:")
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
         top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
         top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
 
-    print(calculate_kenchev_stability_index(top_features_df))
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+
     top_features_df = pd.DataFrame()
+    print("Decision Tree ")
+
     for i in range(1, 6):  
         selector.randomize_columns_order()
         # Train and select features using ReliefF
@@ -299,17 +509,25 @@ if __name__ == '__main__':
         top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
         top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
 
-    print(calculate_kenchev_stability_index(top_features_df))
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+
     top_features_df = pd.DataFrame()
+    print("Decision Tree ")
+
     for i in range(1, 6):  
         selector.randomize_columns_order()
         # Applying Mutual Information with custom settings and returning all features
         selector.train_mrmr(k=-1)  # -1 to return all features
-        print("\nMutual Information Custom Parameters - All Features:")
+        print("\nMutual Information:")
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
         top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
         top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
 
-    print(calculate_kenchev_stability_index(top_features_df))
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+
     print("END")
