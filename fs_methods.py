@@ -143,7 +143,7 @@ class FeatureSelector:
         top_features = chdir_results[:num_features]
 
         # Prepare the feature_importances DataFrame
-        self.feature_importances = pd.DataFrame(top_features, columns=['Feature', 'Score']).sort_values(by='Score', ascending=True).reset_index(drop=True)    
+        self.feature_importances = pd.DataFrame(top_features, columns=['Feature', 'Importance']).sort_values(by='Importance', ascending=True).reset_index(drop=True)    
     
     
     def train_fisher_score(self, num_features=20):
@@ -376,13 +376,15 @@ if __name__ == '__main__':
         selector.train_mrmr(k=-1)  # -1 to return all features
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
+        top_20_features = selector.feature_importances.head(20)
+        top_20 = selector.feature_importances.nlargest(20, 'Relevance_Score')
+        top_features_df[f'Iteration {i} Features'] = top_20['Feature'].reset_index(drop=True)
+        top_features_df[f'Iteration {i} Relevance_Score'] = top_20['Relevance_Score'].reset_index(drop=True)
+        top_features_df[f'Iteration {i} Redundancy_Score'] = top_20['Median_Redundancy_Score'].reset_index(drop=True)
 
     stability_calculator = StabilityCalculator(top_features_df)
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
-
 
     print("Chdir Score:")
     for i in range(1, 6):  
@@ -391,9 +393,9 @@ if __name__ == '__main__':
         selector.train_chdir()
         # print(selector.feature_importances)  
         # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
-
+        top_20 = selector.feature_importances.head(20)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Scores - Iter {i}'] = top_20['Score'].reset_index(drop=True)  # Assume 'Score' is the column name
     stability_calculator = StabilityCalculator(top_features_df)
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
@@ -407,8 +409,9 @@ if __name__ == '__main__':
         selector.train_wx()
         # print(selector.feature_importances)  
         # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
+        top_20 = selector.feature_importances.head(20)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Scores - Iter {i}'] = top_20['Score'].reset_index(drop=True)  # Assume 'Score' is the column name
 
     stability_calculator = StabilityCalculator(top_features_df)
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
@@ -426,9 +429,9 @@ if __name__ == '__main__':
         selector.train_fisher_score()
         # print(selector.feature_importances)  
         # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
-
+        top_20 = selector.feature_importances.head(20)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Scores - Iter {i}'] = top_20['Score'].reset_index(drop=True)  # Assume 'Score' is the column name
     stability_calculator = StabilityCalculator(top_features_df)
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
@@ -442,9 +445,9 @@ if __name__ == '__main__':
         selector.train_xgboost(**xgboost_params)
         # print(selector.feature_importances)  
         # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
-
+        top_20 = selector.feature_importances.head(20)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Scores - Iter {i}'] = top_20['Score'].reset_index(drop=True)  # Assume 'Score' is the column name
     stability_calculator = StabilityCalculator(top_features_df)
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
@@ -458,9 +461,9 @@ if __name__ == '__main__':
         selector.train_decision_tree(**dt_params)
         # print(selector.feature_importances)  
         # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
-
+        top_20 = selector.feature_importances.head(20)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Scores - Iter {i}'] = top_20['Score'].reset_index(drop=True)  # Assume 'Score' is the column name
     stability_calculator = StabilityCalculator(top_features_df)
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
@@ -477,9 +480,9 @@ if __name__ == '__main__':
         selector.train_ttest(k=-1)
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
-    
+        top_20 = selector.feature_importances.head(20)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Scores - Iter {i}'] = top_20['Score'].reset_index(drop=True)  # Assume 'Score' is the column name    
     stability_calculator = StabilityCalculator(top_features_df)
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
@@ -494,9 +497,9 @@ if __name__ == '__main__':
         selector.train_mann_whitney_u()
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
-
+        top_20 = selector.feature_importances.head(20)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Scores - Iter {i}'] = top_20['Score'].reset_index(drop=True)  # Assume 'Score' is the column name
 
     stability_calculator = StabilityCalculator(top_features_df)
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
@@ -512,9 +515,9 @@ if __name__ == '__main__':
         selector.logistic_regression_importance(n=-1, **lr_params)  # -1 to return all features
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
-
+        top_20 = selector.feature_importances.head(20)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Scores - Iter {i}'] = top_20['Score'].reset_index(drop=True)  # Assume 'Score' is the column name
     stability_calculator = StabilityCalculator(top_features_df)
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
@@ -528,9 +531,9 @@ if __name__ == '__main__':
         selector.train_relief(n_features_to_select=-1)
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
-
+        top_20 = selector.feature_importances.head(20)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Scores - Iter {i}'] = top_20['Score'].reset_index(drop=True)  # Assume 'Score' is the column name
     stability_calculator = StabilityCalculator(top_features_df)
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
