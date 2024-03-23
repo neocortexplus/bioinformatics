@@ -136,50 +136,81 @@ class GEODataParser:
         self.mapping_df = pd.DataFrame()
         self.expression_data = pd.DataFrame()
 
-    def parse_gpl_data(self):
-        """Parse GPL data to extract mappings."""
+    def parse_gpl_data_gpl570(self):
+        """Parse GPL570 data to extract mappings."""
         gpl_id = list(self.gse.gpls.keys())[0]
-        gpl = self.gse.gpls[gpl_id]
+        gpl = self.gse.gpls[gpl_id] 
+
+        # Check if the GPL is GPL570
+        if gpl.name != "GPL570":
+            print("This function is designed for GPL570.")
+            return
 
         mappings = []
         for index, row in gpl.table.iterrows():
             probe_id = row['ID']
-            assignments = row['gene_assignment'].split('///')
-            
-            for assignment in assignments:
-                parts = assignment.split('//')
-                
-                # Initialize variables to store information, set defaults to an empty string
-                ref_db = ''
-                location = ''
-                gene_symbol = ''
-                chromosomal_locations = ''
-                entrez_gene_id = ''
-                
-                # Check the number of parts and assign accordingly
-                if len(parts) >= 1:
-                    ref_db = parts[0].strip()
-                if len(parts) >= 2:
-                    location = parts[1].strip()
-                if len(parts) >= 3:
-                    gene_symbol = parts[2].strip()
-                if len(parts) >= 4:
-                    chromosomal_locations = parts[3].strip()
-                if len(parts) >= 5:
-                    entrez_gene_id = parts[4].strip()
-                
-                mappings.append({
-                    'ProbeID': probe_id,
-                    'Ref_DB': ref_db,
-                    'Location': location,
-                    'GeneSymbol': gene_symbol,
-                    'ChromosomalLocation': chromosomal_locations,
-                    'EntrezGeneID': entrez_gene_id
-                })
+            gene_symbol = row['Gene Symbol'].strip() if pd.notnull(row['Gene Symbol']) else ''
+            entrez_gene_id = str(row['ENTREZ_GENE_ID']).strip() if pd.notnull(row['ENTREZ_GENE_ID']) else ''
+
+            mappings.append({
+                'ProbeID': probe_id,
+                'GeneSymbol': gene_symbol,
+                'EntrezGeneID': entrez_gene_id
+            })
+
 
         self.mapping_df = pd.DataFrame(mappings).drop_duplicates(subset='ProbeID', keep='first')
-        print("Parsed GPL data and filtered for unique mappings.")
+        print("Parsed GPL570 data and filtered for unique mappings.")
         return self.mapping_df
+
+    def parse_gpl_data(self):
+        """Parse GPL data to extract mappings."""
+        gpl_id = list(self.gse.gpls.keys())[0]
+        gpl = self.gse.gpls[gpl_id] 
+
+        if gpl.name == "GPL570":
+            gpl570_df = self.parse_gpl_data_gpl570()
+            return gpl570_df
+        else:
+            mappings = []
+            for index, row in gpl.table.iterrows():
+                probe_id = row['ID']
+                assignments = row['gene_assignment'].split('///')
+                
+                for assignment in assignments:
+                    parts = assignment.split('//')
+                    
+                    # Initialize variables to store information, set defaults to an empty string
+                    ref_db = ''
+                    location = ''
+                    gene_symbol = ''
+                    chromosomal_locations = ''
+                    entrez_gene_id = ''
+                    
+                    # Check the number of parts and assign accordingly
+                    if len(parts) >= 1:
+                        ref_db = parts[0].strip()
+                    if len(parts) >= 2:
+                        location = parts[1].strip()
+                    if len(parts) >= 3:
+                        gene_symbol = parts[2].strip()
+                    if len(parts) >= 4:
+                        chromosomal_locations = parts[3].strip()
+                    if len(parts) >= 5:
+                        entrez_gene_id = parts[4].strip()
+                    
+                    mappings.append({
+                        'ProbeID': probe_id,
+                        'Ref_DB': ref_db,
+                        'Location': location,
+                        'GeneSymbol': gene_symbol,
+                        'ChromosomalLocation': chromosomal_locations,
+                        'EntrezGeneID': entrez_gene_id
+                    })
+
+            self.mapping_df = pd.DataFrame(mappings).drop_duplicates(subset='ProbeID', keep='first')
+            print("Parsed GPL data and filtered for unique mappings.")
+            return self.mapping_df
 
     def compile_expression_data(self):
         """Compile expression data from all samples."""
