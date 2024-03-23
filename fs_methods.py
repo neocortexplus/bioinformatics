@@ -143,7 +143,7 @@ class FeatureSelector:
         top_features = chdir_results[:num_features]
 
         # Prepare the feature_importances DataFrame
-        self.feature_importances = pd.DataFrame(top_features, columns=['Feature', 'Score']).sort_values(by='Score', ascending=False).reset_index(drop=True)    
+        self.feature_importances = pd.DataFrame(top_features, columns=['Feature', 'Score']).sort_values(by='Score', ascending=True).reset_index(drop=True)    
     
     
     def train_fisher_score(self, num_features=20):
@@ -163,18 +163,18 @@ class FeatureSelector:
             'FisherScore': top_features_scores
         }).sort_values(by='FisherScore', ascending=False).reset_index(drop=True)
         
-        def train_random_forest(self, n_estimators=100, **kwargs):
-            self.model = RandomForestClassifier(n_estimators=n_estimators, **kwargs)
-            self.model.fit(self.X_train, self.y_train)
-            self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': self.model.feature_importances_}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
+    def train_random_forest(self, n_estimators=100, **kwargs):
+        self.model = RandomForestClassifier(n_estimators=n_estimators, **kwargs)
+        self.model.fit(self.X_train, self.y_train)
+        self.feature_importances = pd.DataFrame({'Feature': self.X.columns, 'Importance': self.model.feature_importances_}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
 
-        def train_ttest(self, k=10, **kwargs):
-            selector = SelectKBest(score_func=f_classif, k=min(k, len(self.X.columns)) if k != -1 else 'all', **kwargs)
-            selector.fit_transform(self.X_train, self.y_train)
-            scores = pd.Series(selector.scores_, index=self.X.columns)
-            self.feature_importances = pd.DataFrame({'Feature': scores.index, 'Importance': scores.values}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
-            if k != -1:
-                self.feature_importances = self.feature_importances.head(k)
+    def train_ttest(self, k=10, **kwargs):
+        selector = SelectKBest(score_func=f_classif, k=min(k, len(self.X.columns)) if k != -1 else 'all', **kwargs)
+        selector.fit_transform(self.X_train, self.y_train)
+        scores = pd.Series(selector.scores_, index=self.X.columns)
+        self.feature_importances = pd.DataFrame({'Feature': scores.index, 'Importance': scores.values}).sort_values(by='Importance', ascending=False).reset_index(drop=True)
+        if k != -1:
+            self.feature_importances = self.feature_importances.head(k)
 
     def train_mutual_info(self, k=10, **kwargs):
         mi_scores = mutual_info_classif(self.X_train, self.y_train, **kwargs)
@@ -262,13 +262,23 @@ class FeatureSelector:
             return_scores=True,
             n_jobs=-1
         )
-        
-        # If mrmr_classif doesn't return indices for all features when K=-1, adjust K accordingly before calling it
-        self.feature_importances = pd.DataFrame({
-            'Feature': self.X.columns[selected_features],
-            'Relevance': relevance_scores,
-            'Redundancy': redundancy_scores
-        }).sort_values(by='Relevance', ascending=False).reset_index(drop=True)
+        absolute_redundancy_scores = redundancy_scores.abs()
+        median_redundancy_per_feature = absolute_redundancy_scores.median(axis=1)
+        median_redundancy_df = median_redundancy_per_feature.reset_index()
+        median_redundancy_df.columns = ['Feature', 'Median_Redundancy_Score']
+
+        # Display the first few rows of the dataframe
+        # print(median_redundancy_df.head())
+        relevance_df = relevance_scores.reset_index()
+        relevance_df.columns = ['Feature', 'Relevance_Score']
+
+        merged_df = pd.merge(relevance_df, median_redundancy_df, on='Feature')
+        sorted_merged_df = merged_df.sort_values(by=['Median_Redundancy_Score', 'Relevance_Score'], ascending=[True, False])
+
+        if k == -1:
+            self.feature_importances =  sorted_merged_df  # Return all rows if k is -1
+        else:
+            self.feature_importances =  sorted_merged_df.head(k)  # Return top k rows
 
 
     def randomize_columns_order(self):
@@ -349,7 +359,7 @@ if __name__ == '__main__':
     df = normalizer.min_max_normalize('Label')
     normalizer.verify_dataset()
 
-    columns_to_keep = ['Label'] + list(np.random.choice(df.columns[:-1], size=2000, replace=False))
+    columns_to_keep = ['Label'] + list(np.random.choice(df.columns[:-1], size=200, replace=False))
 
     # Creating the subset DataFrame
     df = df[columns_to_keep]
@@ -358,6 +368,22 @@ if __name__ == '__main__':
 
 
     top_features_df = pd.DataFrame()
+
+    print("Mutual Information ")
+    for i in range(1, 6):  
+        selector.randomize_columns_order()
+        # Applying Mutual Information with custom settings and returning all features
+        selector.train_mrmr(k=-1)  # -1 to return all features
+        # print(selector.feature_importances)
+        # print(selector.X_train.columns)
+        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
+        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
+
+    stability_calculator = StabilityCalculator(top_features_df)
+    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
+    print(f"Kenchev Stability Index: {kenchev_stability_index}")
+
+
     print("Chdir Score:")
     for i in range(1, 6):  
         selector.randomize_columns_order()
@@ -443,12 +469,11 @@ if __name__ == '__main__':
 
 
     top_features_df = pd.DataFrame()
-    print("Decision Tree ")
+    print("ANOVA F-test")
 
     for i in range(1, 6):  
 
         selector.randomize_columns_order()
-        print("\nANOVA F-test")
         selector.train_ttest(k=-1)
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
@@ -460,14 +485,13 @@ if __name__ == '__main__':
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
 
     top_features_df = pd.DataFrame()
-    print("Decision Tree ")
+    print("Mann-Whitney U Test")
 
     for i in range(1, 6):  
 
         selector.randomize_columns_order()
         # Train using Mann-Whitney U test
         selector.train_mann_whitney_u()
-        print("\nMann-Whitney U Test")
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
         top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
@@ -479,14 +503,13 @@ if __name__ == '__main__':
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
 
     top_features_df = pd.DataFrame()
-    print("Decision Tree ")
+    print("Logistic Regression")
 
     for i in range(1, 6):  
         selector.randomize_columns_order()
         # Logistic Regression Importance with custom settings and returning all features
         lr_params = {'C': 0.01, 'max_iter': 1000}
         selector.logistic_regression_importance(n=-1, **lr_params)  # -1 to return all features
-        print("\nLogistic Regression:")
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
         top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
@@ -497,13 +520,12 @@ if __name__ == '__main__':
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
 
     top_features_df = pd.DataFrame()
-    print("Decision Tree ")
+    print("ReliefF")
 
     for i in range(1, 6):  
         selector.randomize_columns_order()
         # Train and select features using ReliefF
         selector.train_relief(n_features_to_select=-1)
-        print("\nReliefF Selected Features:")
         # print(selector.feature_importances)
         # print(selector.X_train.columns)
         top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
@@ -513,21 +535,5 @@ if __name__ == '__main__':
     kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
     print(f"Kenchev Stability Index: {kenchev_stability_index}")
 
-    top_features_df = pd.DataFrame()
-    print("Decision Tree ")
-
-    for i in range(1, 6):  
-        selector.randomize_columns_order()
-        # Applying Mutual Information with custom settings and returning all features
-        selector.train_mrmr(k=-1)  # -1 to return all features
-        print("\nMutual Information:")
-        # print(selector.feature_importances)
-        # print(selector.X_train.columns)
-        top_20_features = selector.feature_importances.head(20)['Feature'].reset_index(drop=True)
-        top_features_df[f'Top 20 Features - Iter {i}'] = top_20_features
-
-    stability_calculator = StabilityCalculator(top_features_df)
-    kenchev_stability_index = stability_calculator.calculate_kenchev_stability_index()
-    print(f"Kenchev Stability Index: {kenchev_stability_index}")
 
     print("END")
