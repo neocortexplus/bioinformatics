@@ -129,7 +129,7 @@ def chdir(data, sampleclass, genes, gamma=1., sort=True, calculate_sig=False, nn
 		if sig_only:
 			return res[0:np.argmax(ratios)+1]
 		else:
-			res = pd.DataFrame(res, columns=['GeneID', 'CharacteristicDirectionScore', 'SignificanceScore'])
+			res = pd.DataFrame(res, columns=['GeneID', 'Feature', 'Score'])
 			return res
 
 
