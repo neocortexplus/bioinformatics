@@ -5,14 +5,12 @@ from fs_methods import FeatureSelector
 
 
 if __name__ == "__main__":
-    gse_id = "GSE44077"
-    manager  = GEODataManager(gse_id=gse_id)
-    df = manager.load_csv('final_data.csv')
 
 
     DisplayOptionsManager.toggle_pandas_display_options(False)
 
-    gse_id = "GSE44077"
+    # gse_id = "GSE44077"
+    gse_id = "GSE19804"
     manager  = GEODataManager(gse_id=gse_id)
     gse = manager.download_dataset()
     manager.display_metadata()
@@ -30,7 +28,13 @@ if __name__ == "__main__":
     final_data = parser.add_labels_to_expression_data(cleaned_data , metadata_key='characteristics_ch1', label_prefix='tissue', separator=':')
 
 
-    manager.save_to_csv(dataframe=final_data, merged_file="final_data.csv")
+    manager.save_to_csv(dataframe=final_data, merged_file= f"{gse_id}_final_data.csv")
+
+    #verify the dataset
+
+    gse_id = "GSE44077"
+    manager  = GEODataManager(gse_id=gse_id)
+    df = manager.load_csv('final_data.csv')
 
     DataManipulator = DataManipulator(df)
     df_shuffled = DataManipulator.shuffle_rows()
