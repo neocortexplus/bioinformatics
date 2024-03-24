@@ -30,11 +30,11 @@ class DataManipulator:
         :param n_samples: Number of bootstrap samples to generate.
         :return: A list of DataFrames, each a bootstrap sample of the original dataset.
         """
-
+        bootstrap_samples_list = []  # Initialize an empty list to hold the bootstrap samples
         for i in range(n_samples):
-            bootstrap_samples = resample(self.dataframe, replace=True, n_samples=len(self.dataframe), random_state=i)
-                             
-        return bootstrap_samples
+            sample = resample(self.dataframe, replace=True, n_samples=len(self.dataframe), random_state=i)
+            bootstrap_samples_list.append(sample)  # Append the generated sample to the list                 
+        return bootstrap_samples_list
 
 # Example usage
 if __name__ == "__main__":
