@@ -342,14 +342,14 @@ class FeatureSelector:
         }).sort_values(by='Weight', ascending=False).reset_index(drop=True)
 
         # Optionally, you might want to log or use the validation accuracy somewhere
-        print('\nSingle Layer WX Evaluation')
-        print('Selected feature names:', np.array(genes)[sel_idx])
-        print('Selected feature index:', sel_idx)
-        print('Selected feature weight:', sel_weight)
+        # print('\nSingle Layer WX Evaluation')
+        # print('Selected feature names:', np.array(genes)[sel_idx])
+        # print('Selected feature index:', sel_idx)
+        # print('Selected feature weight:', sel_weight)
         print('Evaluation accuracy:', val_acc)
         
 if __name__ == '__main__':
-    filename = "final_data.csv"
+    filename = "../final_data.csv"
     df = GEODataManager.load_csv(filename)  # Adjust for your data loading function
     df['Label'] = df['Label'].replace({
     'Normal lung': 'normal',
@@ -362,7 +362,7 @@ if __name__ == '__main__':
     df_norm = normalizer.min_max_normalize('Label')
     normalizer.verify_dataset()
 
-    columns_to_keep = ['Label'] + list(np.random.choice(df_norm.columns[:-1], size=200, replace=False))
+    columns_to_keep = ['Label'] + list(np.random.choice(df_norm.columns[:-1], size=5000, replace=False))
 
     # Creating the subset DataFrame
     df = df_norm[columns_to_keep]
@@ -371,18 +371,22 @@ if __name__ == '__main__':
     manipulator = DataManipulator(dataframe=df_norm)
     
     bootstrap_samples = manipulator.bootstrap_sample(n_samples=5)
-
-    all_dfs = [df] + bootstrap_samples  # This creates a new list with 6 DataFrames
+    noisy_samples = manipulator.add_noise_to_data()
+    all_dfs = [df] + bootstrap_samples  + noisy_samples
 
     # Now, you can loop over this new list
-    for dataframe in all_dfs:
-        
+    for index , dataframe in enumerate(all_dfs):
+        print(index)
+        print("*" * 100)
+
         selector = FeatureSelector(dataframe=df, label_column='Label')
 
         print("Wx Score:")
         top_features_df = pd.DataFrame()
         collected_results = None
         for i in range(1, 6):  
+            print("#" * 100)
+
             selector.randomize_columns_order()
             selector.train_wx()
 
