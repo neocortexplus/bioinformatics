@@ -11,18 +11,23 @@ class DataManipulator:
         """Permute the rows of the dataset randomly."""
         return self.dataframe.sample(frac=1).reset_index(drop=True)
 
-    def add_noise_to_data(self, noise_level=0.01):
-        """
-        Add Gaussian noise to the dataset.
-        :param noise_level: Standard deviation of Gaussian noise relative to the data standard deviation.
-        """
-        noisy_df = self.dataframe.copy()
-        for column in noisy_df.columns:
-            if noisy_df[column].dtype in ['float64', 'float32', 'int64', 'int32']:
-                std = noisy_df[column].std()
-                noise = np.random.normal(0, std * noise_level, size=noisy_df[column].shape)
-                noisy_df[column] += noise
-        return noisy_df
+    def add_noise_to_data(self, n_datasets=5, noise_level=0.01):
+            """
+            Generate multiple noisy datasets.
+            :param n_datasets: Number of noisy datasets to generate.
+            :param noise_level: Standard deviation of Gaussian noise relative to the data standard deviation.
+            :return: A list of DataFrames, each a noisy version of the original dataset.
+            """
+            noisy_datasets_list = []  # Initialize an empty list to hold the noisy datasets
+            for _ in range(n_datasets):
+                noisy_df = self.dataframe.copy()
+                for column in noisy_df.columns:
+                    if noisy_df[column].dtype in ['float64', 'float32', 'int64', 'int32']:
+                        std = noisy_df[column].std()
+                        noise = np.random.normal(0, std * noise_level, size=noisy_df[column].shape)
+                        noisy_df[column] += noise
+                noisy_datasets_list.append(noisy_df)  # Append the generated noisy dataset to the list
+            return noisy_datasets_list
 
     def bootstrap_sample(self, n_samples=100):
         """
